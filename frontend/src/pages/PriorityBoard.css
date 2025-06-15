@@ -1,0 +1,36 @@
+.priority-board {
+    padding: 24px 0;
+  }
+  
+  .priority-board-content {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  
+  /* Custom styles for pagination */
+  .MuiPagination-root {
+    .MuiPaginationItem-root {
+      color: #666;
+    }
+  
+    .MuiPaginationItem-page.Mui-selected {
+      background-color: #ef4444;
+      color: white;
+    }
+  
+    .MuiPaginationItem-page.Mui-selected:hover {
+      background-color: #dc2626;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .priority-board {
+      padding: 16px 0;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .priority-board {
+      padding: 12px 0;
+    }
+  }
