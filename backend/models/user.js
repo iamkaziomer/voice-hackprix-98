@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema({
     required: function() {
       return !this.googleId; // Phone required only if not Google OAuth user
     },
+    unique: true,
     sparse: true // Allow multiple null values
   },
   password: {

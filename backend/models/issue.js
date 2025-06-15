@@ -68,14 +68,20 @@ const issueSchema = new mongoose.Schema({
     }
   },
   upvotes: {
-    count: { 
-      type: Number, 
+    count: {
+      type: Number,
       default: 0,
       min: 0
     },
-    users: [{ 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: 'User' 
+    users: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      upvotedAt: {
+        type: Date,
+        default: Date.now
+      }
     }]
   },
   target: { 

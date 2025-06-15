@@ -35,8 +35,17 @@ router.get('/analytics', async (req, res) => {
 // Get all issues
 router.get('/', async (req, res) => {
   try {
-    const { sort, limit } = req.query;
-    let query = Issue.find();
+    const { sort, limit, page = 1, pincode } = req.query;
+    const pageSize = Number(limit) || 10;
+    const skip = (Number(page) - 1) * pageSize;
+
+    // Build filter object
+    let filter = {};
+    if (pincode) {
+      filter.pincode = pincode;
+    }
+
+    let query = Issue.find(filter);
 
     // Add sorting
     if (sort === 'recent') {
@@ -47,22 +56,52 @@ router.get('/', async (req, res) => {
       query = query.sort({ createdAt: -1 });
     }
 
-    // Add limit if specified
-    if (limit) {
-      query = query.limit(Number(limit));
-    }
+    // Add pagination
+    query = query.skip(skip).limit(pageSize);
 
     const issues = await query
       .populate('reporter', 'name')
       .populate('comments.user', 'name')
+      .populate('upvotes.users.userId', 'name')
       .exec();
-    
-    res.json(issues);
+
+    // Get total count for pagination
+    const totalIssues = await Issue.countDocuments(filter);
+    const hasMore = skip + pageSize < totalIssues;
+
+    res.json({
+      issues,
+      pagination: {
+        currentPage: Number(page),
+        pageSize,
+        totalIssues,
+        hasMore,
+        totalPages: Math.ceil(totalIssues / pageSize)
+      }
+    });
   } catch (error) {
     console.error('Error fetching issues:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching issues',
+      error: error.message
+    });
+  }
+});
+
+// Get unique pincodes for filtering
+router.get('/pincodes', async (req, res) => {
+  try {
+    const pincodes = await Issue.distinct('pincode');
+    res.json({
+      success: true,
+      pincodes: pincodes.sort()
+    });
+  } catch (error) {
+    console.error('Error fetching pincodes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching pincodes',
       error: error.message
     });
   }
@@ -192,20 +231,25 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
 
     // Convert userId to ObjectId
     const userObjectId = new mongoose.Types.ObjectId(req.userId);
-    
-    // Check if user has already upvoted
-    const hasUpvoted = issue.upvotes.users.some(id => id.equals(userObjectId));
-    console.log('Has user already upvoted:', hasUpvoted);
 
-    if (hasUpvoted) {
+    // Check if user has already upvoted
+    const existingUpvote = issue.upvotes.users.find(upvote =>
+      upvote.userId.equals(userObjectId)
+    );
+    console.log('Has user already upvoted:', !!existingUpvote);
+
+    if (existingUpvote) {
       return res.status(400).json({
         success: false,
         message: 'You have already upvoted this issue'
       });
     }
 
-    // Add upvote
-    issue.upvotes.users.push(userObjectId);
+    // Add upvote with timestamp
+    issue.upvotes.users.push({
+      userId: userObjectId,
+      upvotedAt: new Date()
+    });
     issue.upvotes.count = issue.upvotes.users.length;
     console.log('Saving issue with new upvote count:', issue.upvotes.count);
 
@@ -215,7 +259,9 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
     return res.json({
       success: true,
       message: 'Upvote added successfully',
-      upvoteCount: issue.upvotes.count
+      upvoteCount: issue.upvotes.count,
+      canUndo: true,
+      upvotedAt: new Date()
     });
 
   } catch (error) {
@@ -242,17 +288,32 @@ router.post('/:issueId/remove-upvote', auth, async (req, res) => {
     }
 
     const userObjectId = new mongoose.Types.ObjectId(req.userId);
-    const userIndex = issue.upvotes.users.findIndex(id => id.equals(userObjectId));
+    const upvoteIndex = issue.upvotes.users.findIndex(upvote =>
+      upvote.userId.equals(userObjectId)
+    );
 
-    if (userIndex === -1) {
+    if (upvoteIndex === -1) {
       return res.status(400).json({
         success: false,
         message: 'You have not upvoted this issue'
       });
     }
 
+    // Check if undo is still allowed (within 1 minute)
+    const upvoteTime = issue.upvotes.users[upvoteIndex].upvotedAt;
+    const currentTime = new Date();
+    const timeDifference = (currentTime - upvoteTime) / 1000; // in seconds
+    const undoTimeLimit = 60; // 1 minute in seconds
+
+    if (timeDifference > undoTimeLimit) {
+      return res.status(400).json({
+        success: false,
+        message: 'Undo time limit exceeded. You can only undo upvotes within 1 minute.'
+      });
+    }
+
     // Remove upvote
-    issue.upvotes.users.splice(userIndex, 1);
+    issue.upvotes.users.splice(upvoteIndex, 1);
     issue.upvotes.count = issue.upvotes.users.length;
     await issue.save();
 
