@@ -5,6 +5,14 @@ dotenv.config();
 
 class GoogleAuthService {
   constructor() {
+    // Validate required environment variables
+    if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id') {
+      console.error('GOOGLE_CLIENT_ID is not properly configured');
+    }
+    if (!process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET === 'your-google-client-secret') {
+      console.error('GOOGLE_CLIENT_SECRET is not properly configured');
+    }
+
     this.client = new OAuth2Client(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -14,28 +22,43 @@ class GoogleAuthService {
 
   async verifyIdToken(idToken) {
     try {
+      // Validate input
+      if (!idToken) {
+        throw new Error('ID token is required');
+      }
+
+      // Check if Google client is properly configured
+      if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id') {
+        throw new Error('Google OAuth is not properly configured');
+      }
+
       const ticket = await this.client.verifyIdToken({
         idToken: idToken,
         audience: process.env.GOOGLE_CLIENT_ID,
       });
 
       const payload = ticket.getPayload();
-      
+
+      // Validate payload
+      if (!payload || !payload.sub || !payload.email) {
+        throw new Error('Invalid token payload');
+      }
+
       return {
         success: true,
         user: {
           googleId: payload.sub,
           email: payload.email,
-          name: payload.name,
+          name: payload.name || payload.given_name + ' ' + payload.family_name,
           picture: payload.picture,
-          emailVerified: payload.email_verified
+          emailVerified: payload.email_verified || false
         }
       };
     } catch (error) {
       console.error('Error verifying Google ID token:', error);
       return {
         success: false,
-        error: error.message
+        error: error.message || 'Failed to verify Google token'
       };
     }
   }

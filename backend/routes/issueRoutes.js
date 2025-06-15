@@ -189,6 +189,21 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    // Ensure upvotes structure is properly initialized for response
+    if (!issue.upvotes) {
+      issue.upvotes = {
+        count: 0,
+        users: []
+      };
+    }
+
+    if (!issue.upvotes.users) {
+      issue.upvotes.users = [];
+    }
+
+    // Ensure count matches users array length
+    issue.upvotes.count = issue.upvotes.users.length;
+
     res.json({
       success: true,
       issue
@@ -209,12 +224,39 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
     console.log('Upvote request received for issueId:', req.params.issueId);
     console.log('User ID from auth:', req.userId);
 
-    // Validate MongoDB ID
+    // Validate user ID from auth middleware
+    if (!req.userId) {
+      console.log('No user ID found in request');
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    // Validate MongoDB IDs
     if (!mongoose.Types.ObjectId.isValid(req.params.issueId)) {
       console.log('Invalid issue ID format');
       return res.status(400).json({
         success: false,
         message: 'Invalid issue ID format'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.userId)) {
+      console.log('Invalid user ID format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Verify user exists
+    const user = await User.findById(req.userId);
+    if (!user) {
+      console.log('User not found in database');
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
     }
 
@@ -229,13 +271,35 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
       });
     }
 
-    // Convert userId to ObjectId
+    // Initialize upvotes structure if it doesn't exist
+    if (!issue.upvotes) {
+      issue.upvotes = {
+        count: 0,
+        users: []
+      };
+    }
+
+    if (!issue.upvotes.users) {
+      issue.upvotes.users = [];
+    }
+
+    // Convert userId to ObjectId for comparison
     const userObjectId = new mongoose.Types.ObjectId(req.userId);
 
-    // Check if user has already upvoted
-    const existingUpvote = issue.upvotes.users.find(upvote =>
-      upvote.userId.equals(userObjectId)
+    // Clean up any invalid upvote entries first
+    issue.upvotes.users = issue.upvotes.users.filter(upvote =>
+      upvote && upvote.userId && mongoose.Types.ObjectId.isValid(upvote.userId)
     );
+
+    // Check if user has already upvoted
+    const existingUpvote = issue.upvotes.users.find(upvote => {
+      try {
+        return upvote.userId && upvote.userId.equals(userObjectId);
+      } catch (error) {
+        console.log('Error comparing userId:', error);
+        return false;
+      }
+    });
     console.log('Has user already upvoted:', !!existingUpvote);
 
     if (existingUpvote) {
@@ -253,23 +317,25 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
     issue.upvotes.count = issue.upvotes.users.length;
     console.log('Saving issue with new upvote count:', issue.upvotes.count);
 
-    await issue.save();
+    // Save the issue
+    const savedIssue = await issue.save();
     console.log('Issue saved successfully');
 
     return res.json({
       success: true,
       message: 'Upvote added successfully',
-      upvoteCount: issue.upvotes.count,
+      upvoteCount: savedIssue.upvotes.count,
       canUndo: true,
       upvotedAt: new Date()
     });
 
   } catch (error) {
     console.error('Detailed upvote error:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({
       success: false,
       message: 'Server error while processing upvote',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -279,6 +345,30 @@ router.post('/:issueId/upvote', auth, async (req, res) => {
 // Remove upvote
 router.post('/:issueId/remove-upvote', auth, async (req, res) => {
   try {
+    // Validate user ID from auth middleware
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    // Validate MongoDB IDs
+    if (!mongoose.Types.ObjectId.isValid(req.params.issueId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid issue ID format'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Find the issue
     const issue = await Issue.findById(req.params.issueId);
     if (!issue) {
       return res.status(404).json({
@@ -287,10 +377,28 @@ router.post('/:issueId/remove-upvote', auth, async (req, res) => {
       });
     }
 
-    const userObjectId = new mongoose.Types.ObjectId(req.userId);
-    const upvoteIndex = issue.upvotes.users.findIndex(upvote =>
-      upvote.userId.equals(userObjectId)
+    // Initialize upvotes structure if it doesn't exist
+    if (!issue.upvotes || !issue.upvotes.users) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have not upvoted this issue'
+      });
+    }
+
+    // Clean up any invalid upvote entries first
+    issue.upvotes.users = issue.upvotes.users.filter(upvote =>
+      upvote && upvote.userId && mongoose.Types.ObjectId.isValid(upvote.userId)
     );
+
+    const userObjectId = new mongoose.Types.ObjectId(req.userId);
+    const upvoteIndex = issue.upvotes.users.findIndex(upvote => {
+      try {
+        return upvote.userId && upvote.userId.equals(userObjectId);
+      } catch (error) {
+        console.log('Error comparing userId in remove upvote:', error);
+        return false;
+      }
+    });
 
     if (upvoteIndex === -1) {
       return res.status(400).json({
@@ -315,19 +423,92 @@ router.post('/:issueId/remove-upvote', auth, async (req, res) => {
     // Remove upvote
     issue.upvotes.users.splice(upvoteIndex, 1);
     issue.upvotes.count = issue.upvotes.users.length;
-    await issue.save();
+
+    const savedIssue = await issue.save();
 
     return res.json({
       success: true,
       message: 'Upvote removed successfully',
-      upvoteCount: issue.upvotes.count
+      upvoteCount: savedIssue.upvotes.count
     });
 
   } catch (error) {
     console.error('Error removing upvote:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({
       success: false,
       message: 'Error removing upvote',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Debug route to fix upvotes structure (remove in production)
+router.post('/fix-upvotes', async (req, res) => {
+  try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({
+        success: false,
+        message: 'This endpoint is not available in production'
+      });
+    }
+
+    const issues = await Issue.find({});
+    let fixedCount = 0;
+
+    for (const issue of issues) {
+      let needsUpdate = false;
+
+      // Check if upvotes structure exists
+      if (!issue.upvotes) {
+        issue.upvotes = {
+          count: 0,
+          users: []
+        };
+        needsUpdate = true;
+      }
+
+      // Check if users array exists
+      if (!issue.upvotes.users) {
+        issue.upvotes.users = [];
+        needsUpdate = true;
+      }
+
+      // Remove any invalid upvote entries (missing userId or invalid ObjectId)
+      const validUsers = issue.upvotes.users.filter(upvote => {
+        return upvote &&
+               upvote.userId &&
+               mongoose.Types.ObjectId.isValid(upvote.userId);
+      });
+
+      if (validUsers.length !== issue.upvotes.users.length) {
+        issue.upvotes.users = validUsers;
+        needsUpdate = true;
+      }
+
+      // Ensure count matches users array length
+      if (issue.upvotes.count !== issue.upvotes.users.length) {
+        issue.upvotes.count = issue.upvotes.users.length;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await issue.save();
+        fixedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Fixed ${fixedCount} issues`,
+      totalIssues: issues.length
+    });
+
+  } catch (error) {
+    console.error('Error fixing upvotes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fixing upvotes structure',
       error: error.message
     });
   }

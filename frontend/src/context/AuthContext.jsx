@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { API_ENDPOINTS } from '../config/api';
 
 const AuthContext = createContext();
 
@@ -33,7 +34,7 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = async () => {
       if (token) {
         try {
-          const response = await axios.get('http://localhost:5001/api/auth/me');
+          const response = await axios.get(`${API_ENDPOINTS.AUTH.LOGIN.replace('/login', '/me')}`);
           if (response.data.success) {
             setUser(response.data.user);
             // Check if user is admin based on token
@@ -64,7 +65,7 @@ export const AuthProvider = ({ children }) => {
         password: credentials.password
       };
 
-      const response = await axios.post('http://localhost:5001/api/auth/login', loginData);
+      const response = await axios.post(API_ENDPOINTS.AUTH.LOGIN, loginData);
 
       if (response.data.success) {
         const { token: newToken, user: userData } = response.data;
@@ -87,7 +88,7 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (userData) => {
     try {
-      const response = await axios.post('http://localhost:5001/api/auth/signup', userData);
+      const response = await axios.post(API_ENDPOINTS.AUTH.SIGNUP, userData);
 
       if (response.data.success) {
         const { token: newToken, user: newUser } = response.data;
@@ -110,7 +111,7 @@ export const AuthProvider = ({ children }) => {
 
   const googleLogin = async (credentialResponse) => {
     try {
-      const response = await axios.post('http://localhost:5001/api/auth/google', {
+      const response = await axios.post(API_ENDPOINTS.AUTH.GOOGLE, {
         idToken: credentialResponse.credential
       });
 
@@ -139,7 +140,7 @@ export const AuthProvider = ({ children }) => {
 
   const adminLogin = async (credentials) => {
     try {
-      const response = await axios.post('http://localhost:5001/api/auth/admin/login', credentials);
+      const response = await axios.post(API_ENDPOINTS.AUTH.ADMIN_LOGIN, credentials);
 
       if (response.data.success) {
         const { token: newToken, admin: adminData } = response.data;
