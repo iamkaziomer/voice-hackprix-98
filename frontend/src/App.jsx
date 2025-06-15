@@ -6,6 +6,7 @@ import ModernPrimaryPage from './pages/ModernPrimaryPage';
 import ModernPriorityBoard from './pages/ModernPriorityBoard';
 import ModernBlogsPage from './pages/ModernBlogsPage';
 import ModernUploadIssuePage from './pages/ModernUploadIssuePage';
+import IssueDetailPage from './pages/IssueDetailPage';
 import ModernHeader from './components/ModernHeader';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
               {/* Main routes */}
               <Route path="/primary" element={<ModernPrimaryPage />} />
               <Route path="/issues" element={<ModernHomePage />} />
+              <Route path="/issues/:id" element={<IssueDetailPage />} />
               <Route path="/priority" element={<ModernPriorityBoard />} />
               <Route path="/blogs" element={<ModernBlogsPage />} />
               <Route path="/upload-issue" element={<ModernUploadIssuePage />} />

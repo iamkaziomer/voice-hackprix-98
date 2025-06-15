@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_ENDPOINTS } from '../config/api';
 import { 
   MessageSquare, 
   TrendingUp, 
@@ -16,28 +17,87 @@ const ModernHomePage = () => {
   const { user } = useAuth();
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPincode, setSelectedPincode] = useState('');
+  const [pincodes, setPincodes] = useState([]);
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    hasMore: false,
+    totalIssues: 0
+  });
 
   useEffect(() => {
-    const fetchIssues = async () => {
-      try {
-        const response = await fetch('http://localhost:5001/api/issues');
-        if (response.ok) {
-          const data = await response.json();
-          setIssues(data);
-        } else {
-          console.error('Failed to fetch issues');
-        }
-      } catch (error) {
-        console.error('Error fetching issues:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    fetchPincodes();
+    fetchIssues(1, true); // Reset to page 1 and replace issues
+  }, [selectedPincode, filter]);
 
-    fetchIssues();
-  }, []);
+  const fetchPincodes = async () => {
+    try {
+      const response = await fetch(API_ENDPOINTS.ISSUES.PINCODES);
+      if (response.ok) {
+        const data = await response.json();
+        setPincodes(data.pincodes || []);
+      }
+    } catch (error) {
+      console.error('Error fetching pincodes:', error);
+    }
+  };
+
+  const fetchIssues = async (page = 1, reset = false) => {
+    try {
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '10'
+      });
+
+      if (selectedPincode) {
+        params.append('pincode', selectedPincode);
+      }
+
+      const response = await fetch(`${API_ENDPOINTS.ISSUES.LIST}?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+
+        if (reset) {
+          setIssues(data.issues || []);
+        } else {
+          setIssues(prev => [...prev, ...(data.issues || [])]);
+        }
+
+        setPagination(data.pagination || {
+          currentPage: page,
+          hasMore: false,
+          totalIssues: 0
+        });
+      } else {
+        console.error('Failed to fetch issues');
+      }
+    } catch (error) {
+      console.error('Error fetching issues:', error);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (pagination.hasMore && !loadingMore) {
+      fetchIssues(pagination.currentPage + 1, false);
+    }
+  };
+
+  const handleIssueClick = (issueId) => {
+    // Open in new tab
+    window.open(`/issues/${issueId}`, '_blank');
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -110,12 +170,26 @@ const ModernHomePage = () => {
             {/* Filters */}
             <div className="flex items-center space-x-4">
               <Filter size={20} className="text-gray-500" />
+
+              {/* Pincode Filter */}
+              <select
+                value={selectedPincode}
+                onChange={(e) => setSelectedPincode(e.target.value)}
+                className="input-field"
+              >
+                <option value="">All Pincodes</option>
+                {pincodes.map(pincode => (
+                  <option key={pincode} value={pincode}>{pincode}</option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 className="input-field"
               >
-                <option value="all">All Issues</option>
+                <option value="all">All Status</option>
                 <option value="open">Open</option>
                 <option value="in-progress">In Progress</option>
                 <option value="resolved">Resolved</option>
@@ -134,68 +208,101 @@ const ModernHomePage = () => {
               <div className="spinner w-12 h-12"></div>
             </div>
           ) : filteredIssues.length > 0 ? (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {filteredIssues.map((issue) => (
-                <div key={issue._id} className="issue-card">
-                  {/* Issue Image */}
-                  {issue.images && issue.images.length > 0 && (
-                    <div className="w-full h-48 bg-gray-200 rounded-lg mb-4 overflow-hidden">
-                      <img
-                        src={issue.images[0]}
-                        alt={issue.title}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
+            <>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {filteredIssues.map((issue) => (
+                  <div
+                    key={issue._id}
+                    className="issue-card cursor-pointer hover:shadow-lg transition-shadow duration-300"
+                    onClick={() => handleIssueClick(issue._id)}
+                  >
+                    {/* Issue Image */}
+                    {issue.images && issue.images.length > 0 && (
+                      <div className="w-full h-48 bg-gray-200 rounded-lg mb-4 overflow-hidden">
+                        <img
+                          src={issue.images[0]}
+                          alt={issue.title}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
 
-                  {/* Issue Content */}
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between">
-                      <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">
-                        {issue.title}
-                      </h3>
-                      <div className="flex space-x-2">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(issue.status)}`}>
-                          {issue.status}
+                    {/* Issue Content */}
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between">
+                        <h3 className="text-xl font-semibold text-gray-900 line-clamp-2">
+                          {issue.title}
+                        </h3>
+                        <div className="flex space-x-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(issue.status)}`}>
+                            {issue.status}
+                          </span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(issue.priority)}`}>
+                            {issue.priority}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-gray-600 line-clamp-3">
+                        {issue.description}
+                      </p>
+
+                      <div className="flex items-center space-x-4 text-sm text-gray-500">
+                        <div className="flex items-center space-x-1">
+                          <MapPin size={16} />
+                          <span>{issue.colony}</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <Users size={16} />
+                          <span>{issue.upvotes?.count || 0} supports</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <MessageSquare size={16} />
+                          <span>{issue.comments?.length || 0} comments</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                        <span className="text-sm text-gray-500">
+                          {issue.concernAuthority}
                         </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(issue.priority)}`}>
-                          {issue.priority}
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="text-gray-600 line-clamp-3">
-                      {issue.description}
-                    </p>
-
-                    <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <div className="flex items-center space-x-1">
-                        <MapPin size={16} />
-                        <span>{issue.colony}</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <Users size={16} />
-                        <span>{issue.upvotes?.count || 0} supports</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <MessageSquare size={16} />
-                        <span>{issue.comments?.length || 0} comments</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                      <span className="text-sm text-gray-500">
-                        {issue.concernAuthority}
-                      </span>
-                      <div className="flex items-center space-x-1 text-sm text-gray-500">
-                        <Clock size={16} />
-                        <span>{new Date(issue.createdAt).toLocaleDateString()}</span>
+                        <div className="flex items-center space-x-1 text-sm text-gray-500">
+                          <Clock size={16} />
+                          <span>{new Date(issue.createdAt).toLocaleDateString()}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              {/* Show More Button */}
+              {pagination.hasMore && (
+                <div className="text-center mt-12">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className="btn-primary inline-flex items-center space-x-2 px-8 py-3"
+                  >
+                    {loadingMore ? (
+                      <>
+                        <div className="spinner w-5 h-5"></div>
+                        <span>Loading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={20} />
+                        <span>Show More Issues</span>
+                      </>
+                    )}
+                  </button>
+
+                  <p className="text-sm text-gray-600 mt-3">
+                    Showing {filteredIssues.length} of {pagination.totalIssues} issues
+                  </p>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-20">
               <MessageSquare size={64} className="text-gray-400 mx-auto mb-4" />

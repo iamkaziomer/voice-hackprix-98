@@ -303,11 +303,9 @@ router.post('/google', async (req, res) => {
         googleId: googleUser.googleId,
         authProvider: 'google',
         emailVerified: googleUser.emailVerified,
-        profilePicture: googleUser.picture,
-        // These fields will be filled later if needed
-        phone: null,
-        address: null,
-        landmark: null
+        profilePicture: googleUser.picture
+        // Don't set phone, address, landmark to null - let them be undefined
+        // This works better with sparse indexes
       });
 
       await user.save();

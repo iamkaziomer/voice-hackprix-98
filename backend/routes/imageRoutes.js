@@ -1,9 +1,31 @@
 import express from 'express';
 import multer from 'multer';
 import awsS3 from '../services/awsS3.js';
+// import cloudinaryService from '../services/cloudinaryService.js'; // Uncomment after installing cloudinary
 import auth from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Test AWS S3 configuration
+router.get('/test-aws', async (req, res) => {
+  try {
+    const isConfigured = awsS3.isConfigured();
+
+    res.json({
+      success: true,
+      awsConfigured: isConfigured,
+      bucket: process.env.AWS_S3_BUCKET_NAME,
+      region: process.env.AWS_REGION,
+      hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+      hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -43,11 +65,11 @@ const uploadMiddleware = (req, res, next) => {
   });
 };
 
-// Upload multiple images
+// Upload multiple images with local storage fallback
 router.post('/upload', auth, uploadMiddleware, async (req, res) => {
   try {
     console.log('Upload request received');
-    
+
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -57,33 +79,61 @@ router.post('/upload', auth, uploadMiddleware, async (req, res) => {
 
     console.log(`Processing ${req.files.length} files`);
 
-    const uploadPromises = req.files.map(file => awsS3.uploadImage(file));
-    const results = await Promise.all(uploadPromises);
+    // Try AWS S3 first
+    try {
+      const uploadPromises = req.files.map(file => awsS3.uploadImage(file));
+      const results = await Promise.all(uploadPromises);
 
-    // Check if any uploads failed
-    const failedUploads = results.filter(result => !result.success);
-    if (failedUploads.length > 0) {
-      // If any upload failed, clean up successful uploads
-      const successfulUploads = results.filter(result => result.success);
-      await Promise.all(
-        successfulUploads.map(upload => awsS3.deleteImage(upload.key))
-      );
+      // Check if any uploads failed
+      const failedUploads = results.filter(result => !result.success);
+      if (failedUploads.length === 0) {
+        console.log('AWS S3 upload successful');
+        return res.json({
+          success: true,
+          images: results.map(result => ({
+            url: result.url,
+            key: result.key
+          })),
+          service: 'AWS S3'
+        });
+      } else {
+        throw new Error('AWS S3 upload failed');
+      }
+    } catch (awsError) {
+      console.log('AWS S3 failed, using local storage fallback:', awsError.message);
 
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to upload some images',
-        errors: failedUploads.map(f => f.error)
+      // Fallback to local storage
+      const images = [];
+      const uploadDir = 'uploads';
+
+      // Create uploads directory if it doesn't exist
+      const fs = await import('fs');
+      const path = await import('path');
+
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      for (const file of req.files) {
+        const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}-${file.originalname}`;
+        const filepath = path.join(uploadDir, filename);
+
+        // Save file to local storage
+        fs.writeFileSync(filepath, file.buffer);
+
+        images.push({
+          url: `http://localhost:${process.env.PORT || 5002}/uploads/${filename}`,
+          key: filename
+        });
+      }
+
+      console.log('Local storage upload successful');
+      return res.json({
+        success: true,
+        images,
+        service: 'Local Storage (fallback)'
       });
     }
-
-    // All uploads successful
-    return res.json({
-      success: true,
-      images: results.map(result => ({
-        url: result.url,
-        key: result.key
-      }))
-    });
 
   } catch (error) {
     console.error('Image upload error:', error);

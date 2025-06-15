@@ -6,10 +6,10 @@ dotenv.config();
 
 class AWSS3Service {
   constructor() {
-    // Cloudflare R2 Configuration (S3-compatible)
+    // AWS S3 Configuration
+    this.region = process.env.AWS_REGION || 'us-east-1';
     this.client = new S3Client({
-      region: 'auto',
-      endpoint: 'https://916e3914cac6ee5760a5465d07d29a87.r2.cloudflarestorage.com',
+      region: this.region,
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -17,8 +17,6 @@ class AWSS3Service {
     });
 
     this.bucket = process.env.AWS_S3_BUCKET_NAME;
-    this.region = process.env.AWS_REGION || 'auto';
-    this.publicUrl = 'https://pub-916e3914cac6ee5760a5465d07d29a87.r2.dev';
   }
 
   generateFileName(originalname) {
@@ -54,6 +52,7 @@ class AWSS3Service {
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
+        ACL: 'public-read', // Make the object publicly readable
         Metadata: {
           'uploaded-by': 'voice-platform',
           'upload-date': new Date().toISOString()
@@ -62,8 +61,8 @@ class AWSS3Service {
 
       await this.client.send(command);
 
-      // Construct public URL for Cloudflare R2
-      const publicUrl = `${this.publicUrl}/${key}`;
+      // Construct public URL for AWS S3
+      const publicUrl = `https://${this.bucket}.s3.${this.region}.amazonaws.com/${key}`;
       console.log('Upload successful, public URL:', publicUrl);
 
       return {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDropzone } from 'react-dropzone';
+import { API_ENDPOINTS } from '../config/api';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { 
@@ -96,15 +97,21 @@ const ModernUploadIssuePage = () => {
     if (images.length === 0) return [];
 
     const uploadedImages = [];
-    
-    for (let i = 0; i < images.length; i++) {
-      const formData = new FormData();
-      formData.append('images', images[i].file);
+    const token = localStorage.getItem('token');
 
-      try {
-        const response = await axios.post('http://localhost:5001/api/images/upload', formData, {
+    if (!token) {
+      throw new Error('Authentication token not found');
+    }
+
+    try {
+      for (let i = 0; i < images.length; i++) {
+        const formData = new FormData();
+        formData.append('images', images[i].file);
+
+        const response = await axios.post(API_ENDPOINTS.IMAGES.UPLOAD, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
+            'Authorization': `Bearer ${token}`,
           },
           onUploadProgress: (progressEvent) => {
             const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -115,10 +122,14 @@ const ModernUploadIssuePage = () => {
         if (response.data.success) {
           uploadedImages.push(...response.data.images.map(img => img.url));
         }
-      } catch (error) {
-        console.error('Image upload failed:', error);
-        throw new Error('Failed to upload images');
       }
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      console.error('Error details:', error.response?.data);
+
+      // If image upload fails, we can still proceed without images
+      console.warn('Proceeding without images due to upload failure');
+      return []; // Return empty array to allow issue creation without images
     }
 
     return uploadedImages;
@@ -136,8 +147,18 @@ const ModernUploadIssuePage = () => {
     setUploadProgress(0);
 
     try {
-      // Upload images first
-      const imageUrls = await uploadImages();
+      // Upload images first (if any)
+      let imageUrls = [];
+      if (images.length > 0) {
+        try {
+          imageUrls = await uploadImages();
+          console.log('Images uploaded successfully:', imageUrls);
+        } catch (imageError) {
+          console.warn('Image upload failed, proceeding without images:', imageError);
+          toast.error('Image upload failed, but issue will be created without images');
+          // Continue without images
+        }
+      }
 
       // Create issue
       const issueData = {
@@ -149,15 +170,30 @@ const ModernUploadIssuePage = () => {
         }
       };
 
-      const response = await axios.post('http://localhost:5001/api/issues', issueData);
+      console.log('Creating issue with data:', issueData);
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Please login to report an issue');
+      }
+
+      const response = await axios.post(API_ENDPOINTS.ISSUES.CREATE, issueData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }
+      });
 
       if (response.data.success) {
         toast.success('Issue reported successfully!');
         navigate('/issues');
+      } else {
+        throw new Error(response.data.message || 'Failed to create issue');
       }
     } catch (error) {
       console.error('Error submitting issue:', error);
-      toast.error(error.response?.data?.message || 'Failed to submit issue');
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to submit issue';
+      toast.error(errorMessage);
     } finally {
       setUploading(false);
       setUploadProgress(0);
