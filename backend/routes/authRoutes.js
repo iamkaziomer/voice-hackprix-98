@@ -98,7 +98,7 @@ router.post('/login', async (req, res) => {
   try {
     // Set proper headers
     res.setHeader('Content-Type', 'application/json');
-    
+
     const { emailOrPhone, password } = req.body;
 
     // Validate required fields
@@ -106,6 +106,15 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Email/Phone and password are required'
+      });
+    }
+
+    // Validate JWT secret
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error'
       });
     }
 
@@ -159,7 +168,7 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Server error during login',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
@@ -263,13 +272,23 @@ router.post('/google', async (req, res) => {
       });
     }
 
+    // Check if Google OAuth is configured
+    if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id') {
+      return res.status(500).json({
+        success: false,
+        message: 'Google OAuth is not configured on the server'
+      });
+    }
+
     // Verify the Google ID token
     const verificationResult = await googleAuth.verifyIdToken(idToken);
 
     if (!verificationResult.success) {
+      console.error('Google token verification failed:', verificationResult.error);
       return res.status(400).json({
         success: false,
-        message: 'Invalid Google token'
+        message: 'Invalid Google token',
+        error: process.env.NODE_ENV === 'development' ? verificationResult.error : undefined
       });
     }
 

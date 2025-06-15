@@ -101,6 +101,34 @@ const issueSchema = new mongoose.Schema({
   timestamps: true // This automatically handles createdAt and updatedAt
 });
 
+// Pre-save middleware to ensure upvotes structure is properly initialized
+issueSchema.pre('save', function(next) {
+  // Ensure upvotes structure exists
+  if (!this.upvotes) {
+    this.upvotes = {
+      count: 0,
+      users: []
+    };
+  }
+
+  // Ensure users array exists
+  if (!this.upvotes.users) {
+    this.upvotes.users = [];
+  }
+
+  // Clean up invalid upvote entries (missing or invalid userId)
+  this.upvotes.users = this.upvotes.users.filter(upvote => {
+    return upvote &&
+           upvote.userId &&
+           mongoose.Types.ObjectId.isValid(upvote.userId);
+  });
+
+  // Ensure count matches users array length
+  this.upvotes.count = this.upvotes.users.length;
+
+  next();
+});
+
 // Add 2dsphere index for geospatial queries
 issueSchema.index({ location: "2dsphere" });
 

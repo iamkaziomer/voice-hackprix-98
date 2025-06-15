@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_ENDPOINTS } from '../config/api';
 import { 
   TrendingUp, 
   Users, 
@@ -17,34 +18,94 @@ const ModernPriorityBoard = () => {
   const { user } = useAuth();
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalIssues, setTotalIssues] = useState(0);
   const issuesPerPage = 10;
 
-  const fetchIssues = async () => {
+  const fetchIssues = async (pageNum = 1, append = false) => {
     try {
-      setLoading(true);
-      const response = await fetch(
-        `http://localhost:5001/api/issues?sort=supported&page=${page}&limit=${issuesPerPage}`
-      );
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch issues');
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
       }
-      
+
+      const params = new URLSearchParams({
+        sort: 'supported',
+        page: pageNum.toString(),
+        limit: issuesPerPage.toString()
+      });
+
+      const url = `${API_ENDPOINTS.ISSUES.LIST}?${params}`;
+      console.log('Fetching from URL:', url);
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.error('Response not OK:', response.status, response.statusText);
+        throw new Error(`Failed to fetch issues: ${response.status}`);
+      }
+
       const data = await response.json();
-      setIssues(data);
+      console.log('Priority board raw data:', data);
+      console.log('Data type:', typeof data);
+      console.log('Is array:', Array.isArray(data));
+
+      // Handle both old and new API response formats
+      let fetchedIssues = [];
+      let pagination = null;
+
+      if (data.issues) {
+        fetchedIssues = data.issues;
+        pagination = data.pagination;
+      } else if (Array.isArray(data)) {
+        fetchedIssues = data;
+      }
+
+      if (append) {
+        setIssues(prev => [...prev, ...fetchedIssues]);
+      } else {
+        setIssues(fetchedIssues);
+      }
+
+      // Update pagination info
+      if (pagination) {
+        setHasMore(pagination.hasMore);
+        setTotalIssues(pagination.totalIssues);
+      } else {
+        setHasMore(false);
+        setTotalIssues(fetchedIssues.length);
+      }
+
     } catch (error) {
       console.error('Error fetching issues:', error);
+      if (!append) {
+        setIssues([]);
+      }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMoreIssues = () => {
+    if (hasMore && !loadingMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchIssues(nextPage, true);
     }
   };
 
   useEffect(() => {
-    fetchIssues();
-  }, [page]);
+    fetchIssues(1, false);
+  }, []);
 
-  const handleUpvote = async (issueId) => {
+  const handleUpvote = async (issueId, event) => {
+    // Prevent event bubbling to avoid triggering the card click
+    event.stopPropagation();
+
     if (!user) {
       alert('Please login to upvote issues');
       return;
@@ -56,16 +117,13 @@ const ModernPriorityBoard = () => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(
-        `http://localhost:5001/api/issues/${issueId}/upvote`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await fetch(API_ENDPOINTS.ISSUES.UPVOTE(issueId), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -73,11 +131,16 @@ const ModernPriorityBoard = () => {
       }
 
       // Refresh issues after upvote
-      fetchIssues();
+      fetchIssues(1, false);
     } catch (error) {
       console.error('Error upvoting issue:', error);
       alert(error.message);
     }
+  };
+
+  const handleIssueClick = (issueId) => {
+    // Open issue detail page in new tab
+    window.open(`/issues/${issueId}`, '_blank');
   };
 
   const getStatusColor = (status) => {
@@ -163,6 +226,8 @@ const ModernPriorityBoard = () => {
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Top Priority Issues</h2>
             <p className="text-xl text-gray-600">Ranked by community support</p>
+
+            
           </div>
 
           {loading ? (
@@ -172,7 +237,11 @@ const ModernPriorityBoard = () => {
           ) : issues.length > 0 ? (
             <div className="space-y-6">
               {issues.map((issue, index) => (
-                <div key={issue._id} className="card-gradient hover:scale-[1.02] transition-transform duration-300">
+                <div
+                  key={issue._id}
+                  className="card-gradient hover:scale-[1.02] transition-transform duration-300 cursor-pointer"
+                  onClick={() => handleIssueClick(issue._id)}
+                >
                   <div className="flex items-start space-x-6">
                     {/* Rank Badge */}
                     <div className="flex-shrink-0">
@@ -231,11 +300,11 @@ const ModernPriorityBoard = () => {
                         
                         {/* Upvote Button */}
                         <button
-                          onClick={() => handleUpvote(issue._id)}
+                          onClick={(e) => handleUpvote(issue._id, e)}
                           disabled={!user}
                           className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                            user 
-                              ? 'bg-primary-500 text-white hover:bg-primary-600' 
+                            user
+                              ? 'bg-primary-500 text-white hover:bg-primary-600'
                               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                           }`}
                         >
@@ -259,22 +328,59 @@ const ModernPriorityBoard = () => {
                   </div>
                 </div>
               ))}
+
+              {/* Load More Button */}
+              {hasMore && (
+                <div className="text-center mt-12">
+                  <button
+                    onClick={loadMoreIssues}
+                    disabled={loadingMore}
+                    className="btn-primary inline-flex items-center space-x-2 px-8 py-3"
+                  >
+                    {loadingMore ? (
+                      <>
+                        <div className="spinner w-5 h-5"></div>
+                        <span>Loading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={20} />
+                        <span>Load More Issues</span>
+                      </>
+                    )}
+                  </button>
+
+                  <p className="text-sm text-gray-600 mt-3">
+                    Showing {issues.length} of {totalIssues} issues
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-20">
               <Trophy size={64} className="text-gray-400 mx-auto mb-4" />
-              <h3 className="text-2xl font-semibold text-gray-900 mb-2">No Issues Yet</h3>
+              <h3 className="text-2xl font-semibold text-gray-900 mb-2">No Issues Found</h3>
               <p className="text-gray-600 mb-6">
-                Be the first to report an issue and start building community support!
+                {totalIssues === 0
+                  ? "Be the first to report an issue and start building community support!"
+                  : "No issues match the current criteria. Try adjusting your filters or check back later."
+                }
               </p>
               {user && (
-                <Link
-                  to="/upload-issue"
-                  className="btn-primary inline-flex items-center space-x-2"
-                >
-                  <Plus size={20} />
-                  <span>Report First Issue</span>
-                </Link>
+                <div className="space-y-4">
+                  <Link
+                    to="/upload-issue"
+                    className="btn-primary inline-flex items-center space-x-2"
+                  >
+                    <Plus size={20} />
+                    <span>Report New Issue</span>
+                  </Link>
+                  <div className="text-sm text-gray-500">
+                    <Link to="/issues" className="text-primary-600 hover:text-primary-700">
+                      View all issues
+                    </Link>
+                  </div>
+                </div>
               )}
             </div>
           )}
