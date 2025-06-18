@@ -13,12 +13,8 @@ const PORT = process.env.PORT || 5001;
 
 // CORS Configuration
 const allowedOrigins = [
-  'http://localhost:5173',
   'https://voice-hackprix-98.onrender.com/',
-  'http://localhost:5174',
-  'http://localhost:3000',
-  process.env.FRONTEND_URL,
-  process.env.FRONTEND_URL_DEV
+  'https://voice-hackprix-98-g63e.vercel.app/primary'
 ].filter(Boolean);
 
 app.use(cors({
